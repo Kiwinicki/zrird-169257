@@ -1,0 +1,145 @@
+DROP TABLE job_history CASCADE CONSTRAINTS;
+DROP TABLE employees CASCADE CONSTRAINTS;
+DROP TABLE departments CASCADE CONSTRAINTS;
+DROP TABLE jobs CASCADE CONSTRAINTS;
+DROP TABLE job_grades CASCADE CONSTRAINTS;
+DROP TABLE locations CASCADE CONSTRAINTS;
+DROP TABLE countries CASCADE CONSTRAINTS;
+DROP TABLE regions CASCADE CONSTRAINTS;
+
+CREATE TABLE regions AS SELECT * FROM HR.regions;
+CREATE TABLE countries AS SELECT * FROM HR.countries;
+CREATE TABLE locations AS SELECT * FROM HR.locations;
+CREATE TABLE jobs AS SELECT * FROM HR.jobs;
+CREATE TABLE departments AS SELECT * FROM HR.departments;
+CREATE TABLE employees AS SELECT * FROM HR.employees;
+CREATE TABLE job_history AS SELECT * FROM HR.job_history;
+CREATE TABLE job_grades AS SELECT * FROM HR.job_grades;
+
+ALTER TABLE regions ADD CONSTRAINT pk_regions PRIMARY KEY (region_id);
+ALTER TABLE countries ADD CONSTRAINT pk_countries PRIMARY KEY (country_id);
+ALTER TABLE locations ADD CONSTRAINT pk_locations PRIMARY KEY (location_id);
+ALTER TABLE jobs ADD CONSTRAINT pk_jobs PRIMARY KEY (job_id);
+ALTER TABLE departments ADD CONSTRAINT pk_departments PRIMARY KEY (department_id);
+ALTER TABLE employees ADD CONSTRAINT pk_employees PRIMARY KEY (employee_id);
+ALTER TABLE job_grades ADD CONSTRAINT pk_job_grades PRIMARY KEY (grade_level);
+
+ALTER TABLE countries ADD CONSTRAINT fk_countries_regions FOREIGN KEY (region_id) REFERENCES regions(region_id);
+ALTER TABLE locations ADD CONSTRAINT fk_locations_countries FOREIGN KEY (country_id) REFERENCES countries(country_id);
+ALTER TABLE departments ADD CONSTRAINT fk_departments_locations FOREIGN KEY (location_id) REFERENCES locations(location_id);
+ALTER TABLE employees ADD CONSTRAINT fk_employees_jobs FOREIGN KEY (job_id) REFERENCES jobs(job_id);
+ALTER TABLE employees ADD CONSTRAINT fk_employees_departments FOREIGN KEY (department_id) REFERENCES departments(department_id);
+ALTER TABLE employees ADD CONSTRAINT fk_employees_manager FOREIGN KEY (manager_id) REFERENCES employees(employee_id);
+ALTER TABLE job_history ADD CONSTRAINT fk_jh_employees FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
+ALTER TABLE job_history ADD CONSTRAINT fk_jh_jobs FOREIGN KEY (job_id) REFERENCES jobs(job_id);
+ALTER TABLE job_history ADD CONSTRAINT fk_jh_departments FOREIGN KEY (department_id) REFERENCES departments(department_id);
+
+# zad1
+
+CREATE OR REPLACE VIEW v_zadanie1 AS
+SELECT last_name || ' ' || salary AS wynagrodzenie
+FROM employees
+WHERE department_id IN (20, 50)
+  AND salary BETWEEN 2000 AND 7000
+ORDER BY last_name;
+
+# zad2
+
+CREATE OR REPLACE VIEW v_zadanie2 AS
+SELECT hire_date, last_name, job_id
+FROM employees
+WHERE manager_id IS NOT NULL
+  AND EXTRACT(YEAR FROM hire_date) = 2005
+ORDER BY job_id;
+
+# zad3
+
+CREATE OR REPLACE VIEW v_zadanie3 AS
+SELECT first_name || ' ' || last_name AS imie_nazwisko,
+       salary,
+       phone_number
+FROM employees
+WHERE SUBSTR(last_name, 3, 1) = 'e'
+  AND first_name LIKE 'A%'
+ORDER BY 1 DESC, 2 ASC;
+
+# zad4
+
+CREATE OR REPLACE VIEW v_zadanie4 AS
+SELECT first_name || ' ' || last_name AS imie_nazwisko,
+       ROUND(MONTHS_BETWEEN(SYSDATE, hire_date)) AS liczba_miesiecy,
+       CASE
+           WHEN ROUND(MONTHS_BETWEEN(SYSDATE, hire_date)) < 150 THEN salary * 0.10
+           WHEN ROUND(MONTHS_BETWEEN(SYSDATE, hire_date)) BETWEEN 150 AND 200 THEN salary * 0.20
+           ELSE salary * 0.30
+       END AS wysokosc_dodatku
+FROM employees
+ORDER BY liczba_miesiecy;
+
+# zad5
+
+CREATE OR REPLACE VIEW v_zadanie5 AS
+SELECT department_id,
+       SUM(salary) AS suma_zarobkow,
+       ROUND(AVG(salary)) AS srednia_zarobkow
+FROM employees
+GROUP BY department_id
+HAVING MIN(salary) > 5000;
+
+# zad6
+
+CREATE OR REPLACE VIEW v_zadanie6 AS
+SELECT e.last_name, e.department_id, d.department_name, e.job_id
+FROM employees e
+JOIN departments d ON e.department_id = d.department_id
+JOIN locations l ON d.location_id = l.location_id
+WHERE l.city = 'Toronto';
+
+# zad7
+
+CREATE OR REPLACE VIEW v_zadanie7 AS
+SELECT e2.first_name, e2.last_name
+FROM employees e1
+JOIN employees e2 ON e1.department_id = e2.department_id
+WHERE e1.first_name = 'Jennifer';
+
+# zad8
+
+CREATE OR REPLACE VIEW v_zadanie8 AS
+SELECT department_id, department_name
+FROM departments
+WHERE department_id NOT IN (
+    SELECT DISTINCT department_id FROM employees WHERE department_id IS NOT NULL
+);
+
+# zad9
+
+CREATE OR REPLACE VIEW v_zadanie9 AS
+SELECT e.first_name || ' ' || e.last_name AS imie_nazwisko,
+       e.job_id,
+       d.department_name,
+       e.salary,
+       jg.grade_level
+FROM employees e
+JOIN departments d ON e.department_id = d.department_id
+JOIN job_grades jg ON e.salary BETWEEN jg.lowest_sal AND jg.highest_sal;
+
+# zad10
+
+CREATE OR REPLACE VIEW v_zadanie10 AS
+SELECT first_name || ' ' || last_name AS imie_nazwisko, salary
+FROM employees
+WHERE salary > (SELECT AVG(salary) FROM employees)
+ORDER BY salary DESC;
+
+# zad11
+
+CREATE OR REPLACE VIEW v_zadanie11 AS
+SELECT employee_id,
+       first_name || ' ' || last_name AS imie_nazwisko
+FROM employees
+WHERE department_id IN (
+    SELECT DISTINCT department_id
+    FROM employees
+    WHERE last_name LIKE '%u%'
+);
