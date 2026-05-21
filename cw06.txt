@@ -1,0 +1,891 @@
+Funkcje:
+1. 
+CREATE OR REPLACE FUNCTION get_job_name (
+  p_job_id IN jobs.job_id%TYPE
+) RETURN jobs.job_title%TYPE
+IS
+  v_job_title jobs.job_title%TYPE;
+BEGIN
+  SELECT job_title
+  INTO v_job_title
+  FROM jobs
+  WHERE job_id = p_job_id;
+
+  RETURN v_job_title;
+EXCEPTION
+  WHEN NO_DATA_FOUND THEN
+    RAISE_APPLICATION_ERROR(-20001, 'Praca o podanym ID: ' || p_job_id || ' nie istnieje.');
+  WHEN OTHERS THEN
+    RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd: ' || SQLERRM);
+END get_job_name;
+/
+
+-- Test:
+-- SELECT get_job_name('AD_PRES') FROM dual;
+
+2.
+CREATE OR REPLACE FUNCTION get_annual_salary (
+  p_employee_id IN employees.employee_id%TYPE
+) RETURN NUMBER
+IS
+  v_salary         employees.salary%TYPE;
+  v_commission_pct employees.commission_pct%TYPE;
+  v_annual_salary  NUMBER;
+BEGIN
+  SELECT salary, commission_pct
+  INTO v_salary, v_commission_pct
+  FROM employees
+  WHERE employee_id = p_employee_id;
+
+  v_annual_salary := (v_salary * 12) + (v_salary * NVL(v_commission_pct, 0));
+
+  RETURN v_annual_salary;
+EXCEPTION
+  WHEN NO_DATA_FOUND THEN
+    RAISE_APPLICATION_ERROR(-20002, 'Pracownik o podanym ID: ' || p_employee_id || ' nie istnieje.');
+  WHEN OTHERS THEN
+    RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd: ' || SQLERRM);
+END get_annual_salary;
+/
+
+-- Test:
+-- SELECT get_annual_salary(100) FROM dual;
+
+3.
+CREATE OR REPLACE FUNCTION format_phone_number (
+  p_phone_number IN VARCHAR2
+) RETURN VARCHAR2
+IS
+  v_area_code    VARCHAR2(20);
+  v_rest_of_number VARCHAR2(50);
+  v_dot_position NUMBER;
+BEGIN
+  IF p_phone_number IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  v_dot_position := INSTR(p_phone_number, '.');
+
+  IF v_dot_position > 0 THEN
+    v_area_code := SUBSTR(p_phone_number, 1, v_dot_position - 1);
+    v_rest_of_number := SUBSTR(p_phone_number, v_dot_position + 1);
+    RETURN '(' || v_area_code || ') ' || v_rest_of_number;
+  ELSE
+    RETURN p_phone_number;
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd podczas formatowania numeru: ' || SQLERRM);
+END format_phone_number;
+/
+
+-- Test:
+-- SELECT format_phone_number('515.123.4567') FROM dual;
+
+4.
+CREATE OR REPLACE FUNCTION format_string_case (
+  p_input_string IN VARCHAR2
+) RETURN VARCHAR2
+IS
+  v_length NUMBER;
+  v_first_char VARCHAR2(1);
+  v_last_char VARCHAR2(1);
+  v_middle_part VARCHAR2(4000);
+BEGIN
+  IF p_input_string IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  v_length := LENGTH(p_input_string);
+
+  IF v_length = 0 THEN
+    RETURN '';
+  ELSIF v_length = 1 THEN
+    RETURN UPPER(p_input_string);
+  ELSE
+    v_first_char := UPPER(SUBSTR(p_input_string, 1, 1));
+    v_last_char := UPPER(SUBSTR(p_input_string, -1, 1));
+    IF v_length > 2 THEN
+      v_middle_part := LOWER(SUBSTR(p_input_string, 2, v_length - 2));
+      RETURN v_first_char || v_middle_part || v_last_char;
+    ELSE
+      RETURN v_first_char || v_last_char;
+    END IF;
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd podczas formatowania ciągu: ' || SQLERRM);
+END format_string_case;
+/
+
+-- Test:
+-- SELECT format_string_case('przykladowyTekst') FROM dual;
+-- SELECT format_string_case('a') FROM dual;
+-- SELECT format_string_case('ab') FROM dual;
+-- SELECT format_string_case('ABC') FROM dual;
+
+5.
+CREATE OR REPLACE FUNCTION pesel_to_dob (
+  p_pesel IN VARCHAR2
+) RETURN VARCHAR2
+IS
+  v_year_str  VARCHAR2(2);
+  v_month_str VARCHAR2(2);
+  v_day_str   VARCHAR2(2);
+  v_encoded_month NUMBER;
+  v_actual_month  NUMBER;
+  v_year          NUMBER;
+  v_century_prefix VARCHAR2(2);
+  v_dob           DATE;
+BEGIN
+  IF LENGTH(p_pesel) <> 11 OR NOT REGEXP_LIKE(p_pesel, '^[0-9]{11}$') THEN
+    RAISE_APPLICATION_ERROR(-20003, 'Nieprawidłowy format PESEL. Oczekiwano 11 cyfr.');
+  END IF;
+
+  v_year_str  := SUBSTR(p_pesel, 1, 2);
+  v_month_str := SUBSTR(p_pesel, 3, 2);
+  v_day_str   := SUBSTR(p_pesel, 5, 2);
+  v_encoded_month := TO_NUMBER(v_month_str);
+
+  IF v_encoded_month >= 81 AND v_encoded_month <= 92 THEN
+    v_century_prefix := '18';
+    v_actual_month := v_encoded_month - 80;
+  ELSIF v_encoded_month >= 1 AND v_encoded_month <= 12 THEN
+    v_century_prefix := '19';
+    v_actual_month := v_encoded_month;
+  ELSIF v_encoded_month >= 21 AND v_encoded_month <= 32 THEN 
+    v_century_prefix := '20';
+    v_actual_month := v_encoded_month - 20;
+  ELSE
+    RAISE_APPLICATION_ERROR(-20004, 'Nieprawidłowy kod miesiąca w numerze PESEL: ' || v_month_str || '. Oczekiwano wartości 01-12, 21-32 lub 81-92.');
+  END IF;
+
+  v_year := TO_NUMBER(v_century_prefix || v_year_str);
+
+  IF v_year > 2099 THEN
+      RAISE_APPLICATION_ERROR(-20007, 'PESEL wskazuje na datę urodzenia po roku 2099.');
+  END IF;
+
+  BEGIN
+    v_dob := TO_DATE(v_year || LPAD(v_actual_month, 2, '0') || v_day_str, 'YYYYMMDD');
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20005, 'Nieprawidłowa data urodzenia wygenerowana z PESEL: ' || v_year || '-' || LPAD(v_actual_month, 2, '0') || '-' || v_day_str || '. Sprawdź poprawność dnia.');
+  END;
+
+  RETURN TO_CHAR(v_dob, 'YYYY-MM-DD');
+
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLCODE BETWEEN -20000 AND -20999 THEN
+        RAISE;
+    ELSE
+        RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd w funkcji pesel_to_dob: ' || SQLERRM);
+    END IF;
+END pesel_to_dob;
+/
+
+-- Test:
+-- SELECT pesel_to_dob('90010112345') FROM dual;
+-- SELECT pesel_to_dob('05231512345') FROM dual; 
+
+6.
+CREATE OR REPLACE PACKAGE types_pkg AS
+  TYPE country_stats_rec IS RECORD (
+    employee_count NUMBER,
+    department_count NUMBER
+  );
+END types_pkg;
+/
+
+CREATE OR REPLACE FUNCTION get_country_stats (
+  p_country_name IN countries.country_name%TYPE
+) RETURN types_pkg.country_stats_rec
+IS
+  v_stats types_pkg.country_stats_rec;
+  v_country_id countries.country_id%TYPE;
+BEGIN
+  BEGIN
+    SELECT country_id
+    INTO v_country_id
+    FROM countries
+    WHERE country_name = p_country_name;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      RAISE_APPLICATION_ERROR(-20006, 'Kraj o nazwie "' || p_country_name || '" nie istnieje.');
+  END;
+
+  SELECT COUNT(DISTINCT e.employee_id)
+  INTO v_stats.employee_count
+  FROM employees e
+  JOIN departments d ON e.department_id = d.department_id
+  JOIN locations l ON d.location_id = l.location_id
+  WHERE l.country_id = v_country_id;
+
+  SELECT COUNT(DISTINCT d.department_id)
+  INTO v_stats.department_count
+  FROM departments d
+  JOIN locations l ON d.location_id = l.location_id
+  WHERE l.country_id = v_country_id;
+
+  RETURN v_stats;
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLCODE BETWEEN -20000 AND -20999 THEN
+        RAISE;
+    ELSE
+        RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd w get_country_stats: ' || SQLERRM);
+    END IF;
+END get_country_stats;
+/
+
+-- Test:
+DECLARE
+  stats types_pkg.country_stats_rec;
+BEGIN
+  stats := get_country_stats('United States of America');
+  DBMS_OUTPUT.PUT_LINE('USA - Pracownicy: ' || stats.employee_count || ', Departamenty: ' || stats.department_count);
+
+  stats := get_country_stats('Canada');
+  DBMS_OUTPUT.PUT_LINE('Canada - Pracownicy: ' || stats.employee_count || ', Departamenty: ' || stats.department_count);
+
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE(SQLERRM);
+END;
+/
+
+Wyzwalacze:
+
+1.
+CREATE TABLE archiwum_departamentow (
+  id                NUMBER(4) PRIMARY KEY,
+  nazwa             VARCHAR2(30),
+  data_zamkniecia   DATE,
+  ostatni_manager   VARCHAR2(100)
+);
+
+CREATE OR REPLACE TRIGGER trg_archive_department
+AFTER DELETE ON departments
+FOR EACH ROW
+DECLARE
+  v_manager_name VARCHAR2(100);
+BEGIN
+  IF :OLD.manager_id IS NOT NULL THEN
+    BEGIN
+      SELECT first_name || ' ' || last_name
+      INTO v_manager_name
+      FROM employees
+      WHERE employee_id = :OLD.manager_id;
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        v_manager_name := 'Manager nieznany (ID: ' || :OLD.manager_id || ')';
+    END;
+  ELSE
+    v_manager_name := 'Brak managera';
+  END IF;
+
+  INSERT INTO archiwum_departamentow (id, nazwa, data_zamkniecia, ostatni_manager)
+  VALUES (:OLD.department_id, :OLD.department_name, SYSDATE, v_manager_name);
+  
+  DBMS_OUTPUT.PUT_LINE('Zarchiwizowano departament ID: ' || :OLD.department_id);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Błąd w trg_archive_department: ' || SQLERRM);
+END trg_archive_department;
+/
+
+-- Test:
+INSERT INTO departments (department_id, department_name, manager_id, location_id)
+VALUES (999, 'Testowy Do Usuniecia', 100, 1700);
+COMMIT;
+DELETE FROM departments WHERE department_id = 999;
+-- SELECT * FROM archiwum_departamentow;
+
+2.
+CREATE TABLE zlodziej (
+  id                NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  uzytkownik        VARCHAR2(30),
+  czas_zmiany       TIMESTAMP,
+  akcja             VARCHAR2(10),
+  employee_id_ref   NUMBER,
+  stare_wynagrodzenie NUMBER(8,2),
+  nowe_wynagrodzenie  NUMBER(8,2)
+);
+
+3.
+CREATE OR REPLACE PROCEDURE log_salary_violation (
+    p_user          IN VARCHAR2,
+    p_action        IN VARCHAR2,
+    p_employee_id   IN NUMBER,
+    p_old_salary    IN NUMBER,
+    p_new_salary    IN NUMBER
+) IS
+    PRAGMA AUTONOMOUS_TRANSACTION;
+BEGIN
+    INSERT INTO zlodziej (
+        uzytkownik,
+        czas_zmiany,
+        akcja,
+        employee_id_ref,
+        stare_wynagrodzenie,
+        nowe_wynagrodzenie
+    ) VALUES (
+        p_user,
+        SYSTIMESTAMP,
+        p_action,
+        p_employee_id,
+        p_old_salary,
+        p_new_salary
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Błąd w procedurze log_salary_violation: ' || SQLERRM);
+        ROLLBACK;
+        RAISE;
+END log_salary_violation;
+/
+
+CREATE OR REPLACE TRIGGER trg_check_salary_range
+BEFORE INSERT OR UPDATE OF salary ON employees
+FOR EACH ROW
+BEGIN
+  IF :NEW.salary NOT BETWEEN 2000 AND 26000 THEN
+    log_salary_violation(
+        p_user          => USER,
+        p_action        => CASE WHEN INSERTING THEN 'INSERT' ELSE 'UPDATE' END,
+        p_employee_id   => :NEW.employee_id,
+        p_old_salary    => :OLD.salary,
+        p_new_salary    => :NEW.salary
+    );
+
+    RAISE_APPLICATION_ERROR(-20010, 'Wynagrodzenie (' || :NEW.salary || ') musi być w przedziale 2000 - 26000. Próba zmiany została zarejestrowana.');
+  END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Nieoczekiwany błąd w trg_check_salary_range: ' || SQLERRM);
+        RAISE;
+END trg_check_salary_range;
+/
+
+-- Test:
+-- UPDATE employees SET salary = 1000 WHERE employee_id = 100;
+-- SELECT * FROM zlodziej;
+-- ROLLBACK;
+-- INSERT INTO employees (employee_id, first_name, last_name, email, hire_date, job_id, salary)
+-- VALUES (998, 'Test', 'Zlodziej', 'TZLO' || TO_CHAR(SYSDATE, 'HHMISS'), SYSDATE, 'IT_PROG', 30000);
+-- ROLLBACK;
+
+3.
+CREATE SEQUENCE employees_autoinc_seq
+START WITH 207 
+INCREMENT BY 1
+NOCACHE
+NOCYCLE;
+
+CREATE OR REPLACE TRIGGER trg_employees_autoinc
+BEFORE INSERT ON employees
+FOR EACH ROW
+BEGIN
+  IF :NEW.employee_id IS NULL THEN
+    SELECT employees_autoinc_seq.NEXTVAL
+    INTO :NEW.employee_id
+    FROM dual;
+  END IF;
+END trg_employees_autoinc;
+/
+
+-- Test:
+-- INSERT INTO employees (first_name, last_name, email, hire_date, job_id, salary)
+-- VALUES ('Nowy', 'Pracownik', 'NPRACO' || TO_CHAR(SYSDATE, 'HHMISS'), SYSDATE, 'SA_REP', 5000);
+-- SELECT * FROM employees WHERE first_name = 'Nowy';
+-- ROLLBACK;
+
+4.
+CREATE OR REPLACE TRIGGER trg_prevent_dml_job_grades
+BEFORE INSERT OR UPDATE OR DELETE ON JOB_GRADES
+BEGIN
+  RAISE_APPLICATION_ERROR(-20011, 'Operacje DML na tabeli JOB_GRADES są zabronione.');
+END trg_prevent_dml_job_grades;
+/
+
+-- Test:
+-- INSERT INTO JOB_GRADES VALUES ('A', 1000, 2000);
+-- UPDATE JOB_GRADES SET lowest_sal = 1100 WHERE grade_level = 'A'; 
+-- DELETE FROM JOB_GRADES WHERE grade_level = 'A';
+
+5.
+CREATE OR REPLACE TRIGGER trg_keep_old_salaries_jobs
+BEFORE UPDATE OF min_salary, max_salary ON jobs
+FOR EACH ROW
+BEGIN
+  IF UPDATING('min_salary') AND (:NEW.min_salary <> :OLD.min_salary OR (:NEW.min_salary IS NULL AND :OLD.min_salary IS NOT NULL) OR (:NEW.min_salary IS NOT NULL AND :OLD.min_salary IS NULL) ) THEN
+    DBMS_OUTPUT.PUT_LINE('Próba zmiany min_salary dla job_id ' || :OLD.job_id || ' z ' || NVL(TO_CHAR(:OLD.min_salary), 'NULL') || ' na ' || NVL(TO_CHAR(:NEW.min_salary), 'NULL') || '. Przywracam starą wartość.');
+    :NEW.min_salary := :OLD.min_salary;
+  END IF;
+
+  IF UPDATING('max_salary') AND (:NEW.max_salary <> :OLD.max_salary OR (:NEW.max_salary IS NULL AND :OLD.max_salary IS NOT NULL) OR (:NEW.max_salary IS NOT NULL AND :OLD.max_salary IS NULL) ) THEN
+    DBMS_OUTPUT.PUT_LINE('Próba zmiany max_salary dla job_id ' || :OLD.job_id || ' z ' || NVL(TO_CHAR(:OLD.max_salary), 'NULL') || ' na ' || NVL(TO_CHAR(:NEW.max_salary), 'NULL') || '. Przywracam starą wartość.');
+    :NEW.max_salary := :OLD.max_salary;
+  END IF;
+END trg_keep_old_salaries_jobs;
+/
+
+-- Test:
+-- SELECT job_id, min_salary, max_salary FROM jobs WHERE job_id = 'AD_PRES';
+-- UPDATE jobs SET min_salary = 10000, max_salary = 50000 WHERE job_id = 'AD_PRES';
+-- SELECT job_id, min_salary, max_salary FROM jobs WHERE job_id = 'AD_PRES'; -- Powinny być stare wartości
+-- ROLLBACK;
+
+Paczki:
+
+1.
+CREATE OR REPLACE PACKAGE hr_extended_utils AS
+
+  FUNCTION get_job_name (p_job_id IN jobs.job_id%TYPE) RETURN jobs.job_title%TYPE;
+  FUNCTION get_annual_salary (p_employee_id IN employees.employee_id%TYPE) RETURN NUMBER;
+  FUNCTION format_phone_number (p_phone_number IN VARCHAR2) RETURN VARCHAR2;
+  FUNCTION format_string_case (p_input_string IN VARCHAR2) RETURN VARCHAR2;
+  FUNCTION pesel_to_dob (p_pesel IN VARCHAR2) RETURN VARCHAR2;
+  FUNCTION get_country_stats (p_country_name IN countries.country_name%TYPE) RETURN types_pkg.country_stats_rec;
+
+  PROCEDURE dodaj_job (p_job_id IN jobs.job_id%TYPE, p_job_title IN jobs.job_title%TYPE);
+  PROCEDURE modyfikuj_job_title (p_job_id IN jobs.job_id%TYPE, p_nowy_title IN jobs.job_title%TYPE);
+  PROCEDURE usun_job (p_job_id IN jobs.job_id%TYPE);
+  PROCEDURE pobierz_dane_pracownika (
+    p_employee_id   IN  employees.employee_id%TYPE,
+    p_salary        OUT employees.salary%TYPE,
+    p_last_name     OUT employees.last_name%TYPE
+  );
+  PROCEDURE dodaj_pracownika (
+    p_first_name    IN employees.first_name%TYPE,
+    p_last_name     IN employees.last_name%TYPE,
+    p_email         IN employees.email%TYPE,
+    p_salary        IN employees.salary%TYPE,
+    p_job_id        IN employees.job_id%TYPE          DEFAULT 'SA_REP',
+    p_hire_date     IN employees.hire_date%TYPE       DEFAULT SYSDATE,
+    p_department_id IN employees.department_id%TYPE   DEFAULT 80,
+    p_phone_number  IN employees.phone_number%TYPE    DEFAULT NULL,
+    p_commission_pct IN employees.commission_pct%TYPE DEFAULT NULL,
+    p_manager_id    IN employees.manager_id%TYPE      DEFAULT NULL
+  );
+
+END hr_extended_utils;
+/
+
+CREATE OR REPLACE PACKAGE BODY hr_extended_utils AS
+
+  FUNCTION get_job_name (p_job_id IN jobs.job_id%TYPE) RETURN jobs.job_title%TYPE IS
+    v_job_title jobs.job_title%TYPE;
+  BEGIN
+    SELECT job_title INTO v_job_title FROM jobs WHERE job_id = p_job_id;
+    RETURN v_job_title;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN RAISE_APPLICATION_ERROR(-20001, 'Praca o podanym ID: ' || p_job_id || ' nie istnieje.');
+    WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20099, 'Błąd w get_job_name: ' || SQLERRM);
+  END get_job_name;
+
+  FUNCTION get_annual_salary (p_employee_id IN employees.employee_id%TYPE) RETURN NUMBER IS
+    v_salary employees.salary%TYPE;
+    v_commission_pct employees.commission_pct%TYPE;
+    v_annual_salary NUMBER;
+  BEGIN
+    SELECT salary, commission_pct INTO v_salary, v_commission_pct FROM employees WHERE employee_id = p_employee_id;
+    v_annual_salary := (v_salary * 12) + (v_salary * NVL(v_commission_pct, 0));
+    RETURN v_annual_salary;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN RAISE_APPLICATION_ERROR(-20002, 'Pracownik o ID: ' || p_employee_id || ' nie istnieje.');
+    WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20099, 'Błąd w get_annual_salary: ' || SQLERRM);
+  END get_annual_salary;
+
+  FUNCTION format_phone_number (p_phone_number IN VARCHAR2) RETURN VARCHAR2 IS
+    v_area_code VARCHAR2(20); v_rest_of_number VARCHAR2(50); v_dot_position NUMBER;
+  BEGIN
+    IF p_phone_number IS NULL THEN RETURN NULL; END IF;
+    v_dot_position := INSTR(p_phone_number, '.');
+    IF v_dot_position > 0 THEN
+      v_area_code := SUBSTR(p_phone_number, 1, v_dot_position - 1);
+      v_rest_of_number := SUBSTR(p_phone_number, v_dot_position + 1);
+      RETURN '(' || v_area_code || ') ' || v_rest_of_number;
+    ELSE RETURN p_phone_number; END IF;
+  EXCEPTION WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20099, 'Błąd w format_phone_number: ' || SQLERRM);
+  END format_phone_number;
+
+  FUNCTION format_string_case (p_input_string IN VARCHAR2) RETURN VARCHAR2 IS
+    v_length NUMBER; v_first_char VARCHAR2(1); v_last_char VARCHAR2(1); v_middle_part VARCHAR2(4000);
+  BEGIN
+    IF p_input_string IS NULL THEN RETURN NULL; END IF; v_length := LENGTH(p_input_string);
+    IF v_length = 0 THEN RETURN ''; ELSIF v_length = 1 THEN RETURN UPPER(p_input_string);
+    ELSE
+      v_first_char := UPPER(SUBSTR(p_input_string, 1, 1)); v_last_char := UPPER(SUBSTR(p_input_string, -1, 1));
+      IF v_length > 2 THEN v_middle_part := LOWER(SUBSTR(p_input_string, 2, v_length - 2)); RETURN v_first_char || v_middle_part || v_last_char;
+      ELSE RETURN v_first_char || v_last_char; END IF;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20099, 'Błąd w format_string_case: ' || SQLERRM);
+  END format_string_case;
+
+  FUNCTION pesel_to_dob (p_pesel IN VARCHAR2) RETURN VARCHAR2 IS
+  v_year_str  VARCHAR2(2);
+  v_month_str VARCHAR2(2);
+  v_day_str   VARCHAR2(2);
+  v_encoded_month NUMBER;
+  v_actual_month  NUMBER;
+  v_year          NUMBER;
+  v_century_prefix VARCHAR2(2);
+  v_dob           DATE;
+BEGIN
+  IF LENGTH(p_pesel) <> 11 OR NOT REGEXP_LIKE(p_pesel, '^[0-9]{11}$') THEN
+    RAISE_APPLICATION_ERROR(-20003, 'Nieprawidłowy format PESEL. Oczekiwano 11 cyfr.');
+  END IF;
+
+  v_year_str  := SUBSTR(p_pesel, 1, 2);
+  v_month_str := SUBSTR(p_pesel, 3, 2);
+  v_day_str   := SUBSTR(p_pesel, 5, 2);
+  v_encoded_month := TO_NUMBER(v_month_str);
+
+  IF v_encoded_month >= 81 AND v_encoded_month <= 92 THEN
+    v_century_prefix := '18';
+    v_actual_month := v_encoded_month - 80;
+  ELSIF v_encoded_month >= 1 AND v_encoded_month <= 12 THEN
+    v_century_prefix := '19';
+    v_actual_month := v_encoded_month;
+  ELSIF v_encoded_month >= 21 AND v_encoded_month <= 32 THEN
+    v_century_prefix := '20';
+    v_actual_month := v_encoded_month - 20;
+  ELSE
+    RAISE_APPLICATION_ERROR(-20004, 'Nieprawidłowy kod miesiąca w numerze PESEL: ' || v_month_str || '. Oczekiwano wartości 01-12, 21-32 lub 81-92.');
+  END IF;
+
+  v_year := TO_NUMBER(v_century_prefix || v_year_str);
+
+  IF v_year > 2099 THEN
+      RAISE_APPLICATION_ERROR(-20007, 'PESEL wskazuje na datę urodzenia po roku 2099.');
+  END IF;
+
+  BEGIN
+    v_dob := TO_DATE(v_year || LPAD(v_actual_month, 2, '0') || v_day_str, 'YYYYMMDD');
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20005, 'Nieprawidłowa data urodzenia wygenerowana z PESEL: ' || v_year || '-' || LPAD(v_actual_month, 2, '0') || '-' || v_day_str || '. Sprawdź poprawność dnia.');
+  END;
+
+  RETURN TO_CHAR(v_dob, 'YYYY-MM-DD');
+
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLCODE BETWEEN -20000 AND -20999 THEN
+        RAISE;
+    ELSE
+        RAISE_APPLICATION_ERROR(-20099, 'Wystąpił nieoczekiwany błąd w funkcji pesel_to_dob: ' || SQLERRM);
+    END IF;
+END pesel_to_dob;
+
+
+  FUNCTION get_country_stats (p_country_name IN countries.country_name%TYPE) RETURN types_pkg.country_stats_rec IS
+    v_stats types_pkg.country_stats_rec; v_country_id countries.country_id%TYPE;
+  BEGIN
+    BEGIN SELECT country_id INTO v_country_id FROM countries WHERE country_name = p_country_name;
+    EXCEPTION WHEN NO_DATA_FOUND THEN RAISE_APPLICATION_ERROR(-20006, 'Kraj "' || p_country_name || '" nie istnieje.'); END;
+    SELECT COUNT(DISTINCT e.employee_id) INTO v_stats.employee_count FROM employees e JOIN departments d ON e.department_id = d.department_id JOIN locations l ON d.location_id = l.location_id WHERE l.country_id = v_country_id;
+    SELECT COUNT(DISTINCT d.department_id) INTO v_stats.department_count FROM departments d JOIN locations l ON d.location_id = l.location_id WHERE l.country_id = v_country_id;
+    RETURN v_stats;
+  EXCEPTION
+    WHEN OTHERS THEN IF SQLCODE BETWEEN -20000 AND -20999 THEN RAISE; ELSE RAISE_APPLICATION_ERROR(-20099, 'Błąd w get_country_stats: ' || SQLERRM); END IF;
+  END get_country_stats;
+
+  PROCEDURE dodaj_job (p_job_id IN jobs.job_id%TYPE, p_job_title IN jobs.job_title%TYPE) IS
+  BEGIN
+    INSERT INTO jobs (job_id, job_title) VALUES (p_job_id, p_job_title); COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Dodano job: ' || p_job_id);
+  EXCEPTION WHEN DUP_VAL_ON_INDEX THEN DBMS_OUTPUT.PUT_LINE('Job ID ' || p_job_id || ' już istnieje.'); ROLLBACK;
+            WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('Błąd dodaj_job: ' || SQLERRM); ROLLBACK;
+  END dodaj_job;
+
+  PROCEDURE modyfikuj_job_title (p_job_id IN jobs.job_id%TYPE, p_nowy_title IN jobs.job_title%TYPE) IS
+    e_no_job_updated EXCEPTION; PRAGMA EXCEPTION_INIT(e_no_job_updated, -20001);
+  BEGIN
+    UPDATE jobs SET job_title = p_nowy_title WHERE job_id = p_job_id;
+    IF SQL%NOTFOUND THEN RAISE e_no_job_updated; END IF; COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Zmodyfikowano job: ' || p_job_id);
+  EXCEPTION WHEN e_no_job_updated THEN DBMS_OUTPUT.PUT_LINE('Job ID ' || p_job_id || ' nie znaleziony.'); ROLLBACK;
+            WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('Błąd modyfikuj_job_title: ' || SQLERRM); ROLLBACK;
+  END modyfikuj_job_title;
+
+  PROCEDURE usun_job (p_job_id IN jobs.job_id%TYPE) IS
+    e_no_job_deleted EXCEPTION; PRAGMA EXCEPTION_INIT(e_no_job_deleted, -20002);
+  BEGIN
+    DELETE FROM jobs WHERE job_id = p_job_id;
+    IF SQL%NOTFOUND THEN RAISE e_no_job_deleted; END IF; COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Usunięto job: ' || p_job_id);
+  EXCEPTION WHEN e_no_job_deleted THEN DBMS_OUTPUT.PUT_LINE('Job ID ' || p_job_id || ' nie znaleziony do usunięcia.'); ROLLBACK;
+            WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('Błąd usun_job: ' || SQLERRM); ROLLBACK;
+  END usun_job;
+
+  PROCEDURE pobierz_dane_pracownika (p_employee_id IN employees.employee_id%TYPE, p_salary OUT employees.salary%TYPE, p_last_name OUT employees.last_name%TYPE) IS
+  BEGIN
+    SELECT salary, last_name INTO p_salary, p_last_name FROM employees WHERE employee_id = p_employee_id;
+  EXCEPTION WHEN NO_DATA_FOUND THEN DBMS_OUTPUT.PUT_LINE('Pracownik ID ' || p_employee_id || ' nie znaleziony.'); p_salary := NULL; p_last_name := NULL;
+            WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('Błąd pobierz_dane_pracownika: ' || SQLERRM); p_salary := NULL; p_last_name := NULL;
+  END pobierz_dane_pracownika;
+
+  PROCEDURE dodaj_pracownika (
+    p_first_name    IN employees.first_name%TYPE, p_last_name     IN employees.last_name%TYPE,
+    p_email         IN employees.email%TYPE,    p_salary        IN employees.salary%TYPE,
+    p_job_id        IN employees.job_id%TYPE,   p_hire_date     IN employees.hire_date%TYPE,
+    p_department_id IN employees.department_id%TYPE, p_phone_number  IN employees.phone_number%TYPE,
+    p_commission_pct IN employees.commission_pct%TYPE, p_manager_id    IN employees.manager_id%TYPE
+  ) IS
+    e_salary_too_high EXCEPTION; PRAGMA EXCEPTION_INIT(e_salary_too_high, -20003);
+    v_new_employee_id employees.employee_id%TYPE;
+  BEGIN
+    IF p_salary > 20000 THEN RAISE e_salary_too_high; END IF;
+    SELECT employees_autoinc_seq.NEXTVAL INTO v_new_employee_id FROM dual;
+    INSERT INTO employees (employee_id, first_name, last_name, email, phone_number, hire_date, job_id, salary, commission_pct, manager_id, department_id)
+    VALUES (v_new_employee_id, p_first_name, p_last_name, p_email, p_phone_number, p_hire_date, p_job_id, p_salary, p_commission_pct, p_manager_id, p_department_id);
+    COMMIT; DBMS_OUTPUT.PUT_LINE('Dodano pracownika: ' || p_first_name || ' ' || p_last_name || ' ID: ' || v_new_employee_id);
+  EXCEPTION WHEN e_salary_too_high THEN DBMS_OUTPUT.PUT_LINE('Wynagrodzenie ' || p_salary || ' za wysokie.'); ROLLBACK;
+            WHEN DUP_VAL_ON_INDEX THEN DBMS_OUTPUT.PUT_LINE('Email ' || p_email || ' już istnieje.'); ROLLBACK;
+            WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('Błąd dodaj_pracownika: ' || SQLERRM); ROLLBACK;
+  END dodaj_pracownika;
+
+END hr_extended_utils;
+/
+
+2.
+
+CREATE OR REPLACE PACKAGE regions_crud_pkg AS
+
+  TYPE region_row_type IS RECORD (
+    region_id regions.region_id%TYPE,
+    region_name regions.region_name%TYPE
+  );
+  TYPE region_table_type IS TABLE OF region_row_type INDEX BY BINARY_INTEGER;
+
+  PROCEDURE add_region (
+    p_region_id   IN regions.region_id%TYPE,
+    p_region_name IN regions.region_name%TYPE
+  );
+  PROCEDURE add_region (
+    p_region_name IN regions.region_name%TYPE,
+    p_new_region_id OUT regions.region_id%TYPE
+  );
+
+  FUNCTION get_region_by_id (
+    p_region_id IN regions.region_id%TYPE
+  ) RETURN regions%ROWTYPE;
+
+  FUNCTION get_region_by_name (
+    p_region_name IN regions.region_name%TYPE
+  ) RETURN regions%ROWTYPE;
+
+  FUNCTION get_regions_by_name_pattern (
+    p_name_pattern IN VARCHAR2
+  ) RETURN region_table_type;
+
+  FUNCTION get_all_regions
+  RETURN region_table_type;
+
+  FUNCTION get_all_regions_cursor
+  RETURN SYS_REFCURSOR;
+
+  PROCEDURE update_region_name (
+    p_region_id   IN regions.region_id%TYPE,
+    p_new_name    IN regions.region_name%TYPE
+  );
+
+  PROCEDURE delete_region (
+    p_region_id IN regions.region_id%TYPE
+  );
+
+  e_region_not_found EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_region_not_found, -20100);
+  e_region_name_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_region_name_exists, -20101);
+
+END regions_crud_pkg;
+/
+
+CREATE SEQUENCE regions_pkg_seq START WITH 100 NOCACHE;
+/
+
+CREATE OR REPLACE PACKAGE BODY regions_crud_pkg AS
+
+  PROCEDURE add_region (p_region_id IN regions.region_id%TYPE, p_region_name IN regions.region_name%TYPE) IS
+  BEGIN
+    INSERT INTO regions (region_id, region_name) VALUES (p_region_id, p_region_name);
+    COMMIT;
+  EXCEPTION
+    WHEN DUP_VAL_ON_INDEX THEN
+      RAISE_APPLICATION_ERROR(-20102, 'Region o ID ' || p_region_id || ' już istnieje.');
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20199, 'Błąd add_region(id,name): ' || SQLERRM);
+  END add_region;
+
+  PROCEDURE add_region (p_region_name IN regions.region_name%TYPE, p_new_region_id OUT regions.region_id%TYPE) IS
+    v_temp_id regions.region_id%TYPE;
+  BEGIN
+    BEGIN
+        SELECT region_id INTO v_temp_id FROM regions WHERE region_name = p_region_name;
+        RAISE e_region_name_exists;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN NULL;
+        WHEN e_region_name_exists THEN RAISE;
+    END;
+
+    SELECT regions_pkg_seq.NEXTVAL INTO p_new_region_id FROM dual;
+    INSERT INTO regions (region_id, region_name) VALUES (p_new_region_id, p_region_name);
+    COMMIT;
+  EXCEPTION
+    WHEN e_region_name_exists THEN
+      RAISE_APPLICATION_ERROR(-20101, 'Region o nazwie "' || p_region_name || '" już istnieje.');
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20199, 'Błąd add_region(name): ' || SQLERRM);
+  END add_region;
+
+  FUNCTION get_region_by_id (p_region_id IN regions.region_id%TYPE) RETURN regions%ROWTYPE IS
+    v_region_row regions%ROWTYPE;
+  BEGIN
+    SELECT * INTO v_region_row FROM regions WHERE region_id = p_region_id;
+    RETURN v_region_row;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN RAISE e_region_not_found;
+  END get_region_by_id;
+
+  FUNCTION get_region_by_name (p_region_name IN regions.region_name%TYPE) RETURN regions%ROWTYPE IS
+    v_region_row regions%ROWTYPE;
+  BEGIN
+    SELECT * INTO v_region_row FROM regions WHERE region_name = p_region_name;
+    RETURN v_region_row;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN RAISE e_region_not_found;
+    WHEN TOO_MANY_ROWS THEN
+        RAISE_APPLICATION_ERROR(-20103, 'Znaleziono wiele regionów o nazwie: ' || p_region_name);
+  END get_region_by_name;
+
+  FUNCTION get_regions_by_name_pattern (p_name_pattern IN VARCHAR2) RETURN region_table_type IS
+    v_regions region_table_type;
+    i BINARY_INTEGER := 0;
+  BEGIN
+    FOR rec IN (SELECT region_id, region_name FROM regions WHERE region_name LIKE p_name_pattern ORDER BY region_name) LOOP
+      i := i + 1;
+      v_regions(i).region_id := rec.region_id;
+      v_regions(i).region_name := rec.region_name;
+    END LOOP;
+    RETURN v_regions;
+  END get_regions_by_name_pattern;
+
+
+  FUNCTION get_all_regions RETURN region_table_type IS
+    v_regions region_table_type;
+    i BINARY_INTEGER := 0;
+  BEGIN
+    FOR rec IN (SELECT region_id, region_name FROM regions ORDER BY region_name) LOOP
+      i := i + 1;
+      v_regions(i).region_id := rec.region_id;
+      v_regions(i).region_name := rec.region_name;
+    END LOOP;
+    RETURN v_regions;
+  END get_all_regions;
+
+  FUNCTION get_all_regions_cursor RETURN SYS_REFCURSOR IS
+    v_cursor SYS_REFCURSOR;
+  BEGIN
+    OPEN v_cursor FOR SELECT region_id, region_name FROM regions ORDER BY region_id;
+    RETURN v_cursor;
+  END get_all_regions_cursor;
+
+
+  PROCEDURE update_region_name (p_region_id IN regions.region_id%TYPE, p_new_name IN regions.region_name%TYPE) IS
+    v_temp_id regions.region_id%TYPE;
+  BEGIN
+    BEGIN
+        SELECT region_id INTO v_temp_id FROM regions WHERE region_name = p_new_name AND region_id <> p_region_id;
+        RAISE e_region_name_exists;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN NULL; -- OK
+        WHEN e_region_name_exists THEN RAISE;
+    END;
+
+    UPDATE regions SET region_name = p_new_name WHERE region_id = p_region_id;
+    IF SQL%NOTFOUND THEN RAISE e_region_not_found; END IF;
+    COMMIT;
+  EXCEPTION
+    WHEN e_region_not_found THEN
+        RAISE_APPLICATION_ERROR(-20100, 'Region o ID ' || p_region_id || ' nie znaleziony do aktualizacji.');
+    WHEN e_region_name_exists THEN
+        RAISE_APPLICATION_ERROR(-20101, 'Region o nazwie "' || p_new_name || '" już istnieje.');
+    WHEN OTHERS THEN
+        RAISE_APPLICATION_ERROR(-20199, 'Błąd update_region_name: ' || SQLERRM);
+  END update_region_name;
+
+  PROCEDURE delete_region (p_region_id IN regions.region_id%TYPE) IS
+  BEGIN
+    DELETE FROM regions WHERE region_id = p_region_id;
+    IF SQL%NOTFOUND THEN RAISE e_region_not_found; END IF;
+    COMMIT;
+  EXCEPTION
+    WHEN e_region_not_found THEN
+        RAISE_APPLICATION_ERROR(-20100, 'Region o ID ' || p_region_id || ' nie znaleziony do usunięcia.');
+    WHEN OTHERS THEN 
+        RAISE_APPLICATION_ERROR(-20199, 'Błąd delete_region: ' || SQLERRM || '. Sprawdź, czy nie ma powiązanych krajów.');
+  END delete_region;
+
+END regions_crud_pkg;
+/
+
+-- DECLARE
+--   v_new_id regions.region_id%TYPE;
+--   v_region_rec regions%ROWTYPE;
+--   v_regions_table regions_crud_pkg.region_table_type;
+--   v_regions_cursor SYS_REFCURSOR;
+--   v_region_id regions.region_id%TYPE;
+--   v_region_name regions.region_name%TYPE;
+-- BEGIN
+--   DBMS_OUTPUT.PUT_LINE('--- Testowanie regions_crud_pkg ---');
+--   -- Dodawanie
+--   regions_crud_pkg.add_region(p_region_name => 'Test Region Alpha', p_new_region_id => v_new_id);
+--   DBMS_OUTPUT.PUT_LINE('Dodano Test Region Alpha z ID: ' || v_new_id);
+--   regions_crud_pkg.add_region(p_region_id => 99, p_region_name => 'Test Region 99');
+--   DBMS_OUTPUT.PUT_LINE('Dodano Test Region 99 z ID: 99');
+
+--   -- Odczyt
+--   v_region_rec := regions_crud_pkg.get_region_by_id(v_new_id);
+--   DBMS_OUTPUT.PUT_LINE('Odczytano ID ' || v_new_id || ': ' || v_region_rec.region_name);
+
+--   -- Aktualizacja
+--   regions_crud_pkg.update_region_name(p_region_id => v_new_id, p_new_name => 'Test Region Alpha Zmieniony');
+--   v_region_rec := regions_crud_pkg.get_region_by_id(v_new_id);
+--   DBMS_OUTPUT.PUT_LINE('Po aktualizacji ID ' || v_new_id || ': ' || v_region_rec.region_name);
+
+--   -- Odczyt po wzorcu
+--   v_regions_table := regions_crud_pkg.get_regions_by_name_pattern('Test Region%');
+--   IF v_regions_table.COUNT > 0 THEN
+--     FOR i IN v_regions_table.FIRST .. v_regions_table.LAST LOOP
+--       DBMS_OUTPUT.PUT_LINE('Wzorzec - ID: ' || v_regions_table(i).region_id || ', Nazwa: ' || v_regions_table(i).region_name);
+--     END LOOP;
+--   END IF;
+  
+--   -- Odczyt wszystkich przez kursor
+--   v_regions_cursor := regions_crud_pkg.get_all_regions_cursor;
+--   DBMS_OUTPUT.PUT_LINE('Wszystkie regiony (kursor):');
+--   LOOP
+--     FETCH v_regions_cursor INTO v_region_id, v_region_name;
+--     EXIT WHEN v_regions_cursor%NOTFOUND;
+--     DBMS_OUTPUT.PUT_LINE('  ID: ' || v_region_id || ', Nazwa: ' || v_region_name);
+--   END LOOP;
+--   CLOSE v_regions_cursor;
+
+--   -- Usuwanie
+--   regions_crud_pkg.delete_region(v_new_id);
+--   DBMS_OUTPUT.PUT_LINE('Usunięto region o ID: ' || v_new_id);
+--   regions_crud_pkg.delete_region(99);
+--   DBMS_OUTPUT.PUT_LINE('Usunięto region o ID: 99');
+  
+--   ROLLBACK; -- Aby nie zapisywać zmian testowych, jeśli nie chcesz
+-- EXCEPTION
+--   WHEN OTHERS THEN
+--     DBMS_OUTPUT.PUT_LINE('Błąd testowania: ' || SQLERRM);
+--     ROLLBACK;
+-- END;
+-- /
